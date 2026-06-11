@@ -44,6 +44,10 @@
 .EXAMPLE
     Generates a report in the All formats using AppID and CertificateThumbprint
     PS C:\> Generate-ConditionalAccessReport.ps1 -OutputFormat All -TenantID <TenantID> -AppID <AppID> -CertificateThumbprint <CertificateThumbprint>
+.EXAMPLE
+    Generates a report in the All formats using AppID and ClientSecret
+    PS C:\> $ClientSecret = Read-Host -Prompt "Client secret" -AsSecureString
+    PS C:\> Generate-ConditionalAccessReport.ps1 -OutputFormat All -TenantID <TenantID> -AppID <AppID> -ClientSecret $ClientSecret
 .INPUTS
    No inputs
 .OUTPUTS
@@ -78,6 +82,7 @@
       2 May 2025: Split out the CSS and HTML body into separate files to reduce the length of the script. 
       Both the Htmlbody are required for the HTML report to work. These files must be in the same directory as the script.
 	  25 June 2025: Updated the script to test for the HTML report requirements before generating the report for HTML reports.
+      11 November 2025: Added client secret authentication support for app registrations.
  		
 
 .LINK
@@ -91,7 +96,8 @@ param (
 [Parameter(Mandatory = $true, Position = 0)] [ValidateSet('All', 'CSV', 'HTML')] $OutputFormat,
     [Parameter(Mandatory = $False, Position = 1)] [String] $TenantID,
     [Parameter(Mandatory = $False, Position = 2)] [string] $AppID,
-    [Parameter(Mandatory = $False, Position = 3)] [string] $CertificateThumbprint
+    [Parameter(Mandatory = $False, Position = 3)] [string] $CertificateThumbprint,
+    [Parameter(Mandatory = $False, Position = 4)] [securestring] $ClientSecret
 )
 #Requires -Version 5.1
 #Requires -Modules @{ ModuleName = "Microsoft.Graph.Authentication"; ModuleVersion = "2.28.0" }
@@ -107,14 +113,40 @@ Begin {
     Write-Host 'Logging into Microsoft Graph' -ForegroundColor Green
 
     # Validate parameter dependencies
-    $usingCertAuth = $AppID -or $CertificateThumbprint
+    $hasAppID = -not [string]::IsNullOrWhiteSpace($AppID)
+    $hasCertificateThumbprint = -not [string]::IsNullOrWhiteSpace($CertificateThumbprint)
+    $hasClientSecret = $null -ne $ClientSecret
+    $usingCertAuth = $hasAppID -and $hasCertificateThumbprint
+    $usingClientSecretAuth = $hasAppID -and $hasClientSecret
 
-    if ($usingCertAuth) {
-        if (-not ($AppID -and $CertificateThumbprint -and $TenantID)) {
-            Write-Host 'When using AppID and CertificateThumbprint, you must also provide TenantID. All three parameters are required together. Exiting.......' -ForegroundColor Red
-            Start-Sleep -Seconds 2
-            Exit
-        }
+    if ($hasCertificateThumbprint -and $hasClientSecret) {
+        Write-Host 'Use either CertificateThumbprint or ClientSecret for app registration authentication, not both. Exiting.......' -ForegroundColor Red
+        Start-Sleep -Seconds 2
+        Exit
+    }
+
+    if (($hasAppID -or $hasCertificateThumbprint -or $hasClientSecret) -and [string]::IsNullOrWhiteSpace($TenantID)) {
+        Write-Host 'TenantID is required when using app registration authentication. Exiting.......' -ForegroundColor Red
+        Start-Sleep -Seconds 2
+        Exit
+    }
+
+    if ($hasCertificateThumbprint -and -not $hasAppID) {
+        Write-Host 'When using CertificateThumbprint, you must also provide AppID. Exiting.......' -ForegroundColor Red
+        Start-Sleep -Seconds 2
+        Exit
+    }
+
+    if ($hasClientSecret -and -not $hasAppID) {
+        Write-Host 'When using ClientSecret, you must also provide AppID. Exiting.......' -ForegroundColor Red
+        Start-Sleep -Seconds 2
+        Exit
+    }
+
+    if ($hasAppID -and -not ($hasCertificateThumbprint -or $hasClientSecret)) {
+        Write-Host 'When using AppID, you must also provide either CertificateThumbprint or ClientSecret. Exiting.......' -ForegroundColor Red
+        Start-Sleep -Seconds 2
+        Exit
     }
 
     if ($TenantID.Length -eq 0) {
@@ -127,7 +159,7 @@ Begin {
 		Start-Sleep -Seconds 2
 		Exit
 	}
-	} elseif ($TenantID -and !$usingCertAuth) {
+	} elseif ($TenantID -and !$usingCertAuth -and !$usingClientSecretAuth) {
 		try {
 			Write-Host "Trying to connect to tenant: $TenantID"
 			Connect-MgGraph -Scopes 'Policy.Read.All', 'Directory.Read.All' -TenantId $TenantID -NoWelcome
@@ -137,7 +169,7 @@ Begin {
 			Start-Sleep -Seconds 2
 			Exit
 		}
-	} elseif ($TenantID -and $usingCertAuth) {
+	} elseif ($TenantID -and $CertificateThumbprint) {
 		try {
 			Write-Host "Connecting to Microsoft Graph using App Registration..." -ForegroundColor Green
 		
@@ -159,6 +191,17 @@ Begin {
 				Write-Host "Certificate found. Continuing...`n" -ForegroundColor Green
 				Connect-MgGraph -ClientId $AppID -CertificateThumbprint $CertificateThumbprint -TenantId $TenantID -NoWelcome
 			}
+		}
+		catch {
+			Write-Host 'Login Failed. Exiting.......' -ForegroundColor Red
+			Start-Sleep -Seconds 2
+			Exit
+		}
+	} elseif ($TenantID -and $ClientSecret) {
+		try {
+			Write-Host "Connecting to Microsoft Graph using App Registration client secret..." -ForegroundColor Green
+			$ClientSecretCredential = [System.Management.Automation.PSCredential]::new($AppID, $ClientSecret)
+			Connect-MgGraph -TenantId $TenantID -ClientSecretCredential $ClientSecretCredential -NoWelcome
 		}
 		catch {
 			Write-Host 'Login Failed. Exiting.......' -ForegroundColor Red
