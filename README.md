@@ -38,6 +38,8 @@
                 Split out the CSS and HTML body into separate files to reduce the length of the script.
 	25 June 2025:
 		Updated the script to test for the HTML report requirements before generating the report for HTML reports.
+    11 November 2025:
+                Added client secret authentication for app registrations.
 
 # Description
     The script will generate a report for all the Conditional Access Policies and Named Locations used in the Entra ID Tenant.
@@ -58,7 +60,7 @@
     5.  Review and accept the required permissions.
     6.  The report can be executed as soon as the permissions are granted on the application.
     
-    Optional: Certificate authentication requires that permissions 'Policy.Read.All', 'Directory.Read.All' are added to the application before authenticating. 
+    Optional: Certificate or client secret authentication requires that Microsoft Graph application permissions 'Policy.Read.All', 'Directory.Read.All' are added to the application and admin consent is granted before authenticating. 
     
 # Example
     Generates a report in the CSV and HTML format in the same location where the script is located.
@@ -72,6 +74,12 @@
     
     Generates a report in the All formats using AppID and CertificateThumbprint
     PS C:\> Generate-ConditionalAccessReport.ps1 -OutputFormat All -TenantID <TenantID> -AppID <AppID> -CertificateThumbprint <CertificateThumbprint>
+
+    Generates a report in the All formats using AppID and ClientSecret
+    PS C:\> $ClientSecret = Read-Host -Prompt "Client secret" -AsSecureString
+    PS C:\> Generate-ConditionalAccessReport.ps1 -OutputFormat All -TenantID <TenantID> -AppID <AppID> -ClientSecret $ClientSecret
+
+    Avoid putting client secrets directly on the command line or storing them in script files, transcripts, or exported logs.
 
 # Outputs
     Exports .html and .csv files that contains the Conditional Access policies and Named Locations
